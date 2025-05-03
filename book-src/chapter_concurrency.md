@@ -1,6 +1,16 @@
 # Concurrency Memtable Freezing in LevelDB
 
+- [Concurrency Memtable Freezing in LevelDB](#concurrency-memtable-freezing-in-leveldb)
+  - [Threading Model](#threading-model)
+  - [Writer Thread](#writer-thread)
+  - [Background Thread](#background-thread)
+  - [Reader Thread](#reader-thread)
+    - [Atomic Flag has\_imm\_](#atomic-flag-has_imm_)
+
 How to handle concurrent reads and writes when memtable size threshold is exceeded?
+1. Old memtable is moved to immutable memtable list (imm).
+2. A new memtable is installed atomically.
+3. Background flushes are scheduled without blocking.
 
 ## Threading Model
 
@@ -97,8 +107,8 @@ flowchart TD
     class w_set_flag,r1_load_flag,r2_load_flag,bg_clear_flag atomic
 ```
 
+## Writer Thread
 
-### concurrent write
 1. size check
 2. wait if already flushing
 3. memtable switch
@@ -110,7 +120,57 @@ Status DBImpl::MakeRoomForWrite(bool force) {
 }
 ```
 
-### concurrent reads
+**Memtable Switch**
+1. new WAL log file created
+2. current memtable moved to `imm_` immutable memtable
+3. `has_imm_` flag is atomically set using memory order release semantics
+4. new empty memtable is created
+5. background compaction is scheduled
+
+```cpp
+/// Code in MakeRoomForWrite()
+
+// step 1 create new WAL log file
+assert(versions_->PrevLogNumber() == 0);
+uint64_t new_log_number = versions_->NewFileNumber();
+WritableFile* lfile = nullptr;
+s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+// ... [create new log file]
+delete log_;
+delete logfile_;
+logfile_ = lfile;
+logfilenumber_ = new_log_number;
+log_ = new log::Writer(lfile);
+
+// step 2
+imm_ = mem_;
+// step 3
+has_imm_.store(true, std::memory_order_release);
+
+// step4: create new empty memtable
+mem_ = new Memtable(internal_comparator_);
+mem_->Ref();
+
+// step5: compaction
+MaybeScheduleCompaction();
+```
+
+FAQ
+- why we need to create new log file in writer thread?
+  - **simplify design and storage management**: 
+    - it makes the design simple as one log file matches to one memtable.
+    - preventing any log file from growing too large.
+    - we can just delete the log file of the flushed memtable (to SSTable) without any impact.
+    - without separate log file, it's hard to know which part of log file to be deleted.
+  - **simplify recovery:**
+    - each log file matches to a memtable that might not have been flushed.
+    - system can easily find out which log file to be replayed for current memtable.
+
+## Background Thread
+Background thread executes `CompactMemTable` method.
+
+
+## Reader Thread
 
 1. Atomic Flag for Immutable State `has_imm_.store(true, std::memory_order_release);`
 2. Reference Counting for Safe Concurrent Access
@@ -134,7 +194,8 @@ States
       1. background thread (BT) finishes flushing to SSTable.
       2. BT releases immutable memtable.
       3. Future readers will skip checking now non-existing immutable memtable.
-3. **Final State**: immutable data now in SSTable, only memtable is active.
+3. **Final State**
+   1. immutable data now in SSTable, only memtable is active.
 
 ```mermaid
 sequenceDiagram
