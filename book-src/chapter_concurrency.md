@@ -9,10 +9,10 @@ flowchart TD
     %% Define swimlanes
     subgraph Writer_Thread ["Writer Thread"]
         w_start([Write Request])
-        w_check_size{Memtable size\n> threshold?}
-        w_continue[Continue with write\nto active memtable]
+        w_check_size{Memtable size > threshold?}
+        w_continue[Continue with write to active memtable]
         w_switch_mem[Switch memtable]
-        w_set_flag[Set has_imm_=true\nwith memory_order_release]
+        w_set_flag[Set has_imm_=true with memory_order_release]
         w_new_mem[Create new active memtable]
         w_signal[Signal background thread]
         w_end([Write completed])
@@ -20,22 +20,22 @@ flowchart TD
 
     subgraph Read_Thread_1 ["Read Thread 1 (During Transition)"]
         r1_start([Read Request])
-        r1_load_flag[Load has_imm_\nwith memory_order_acquire]
-        r1_check_flag{has_imm_\n== true?}
+        r1_load_flag[Load has_imm_ with memory_order_acquire]
+        r1_check_flag{has_imm_ == true?}
         r1_check_active[Check active memtable]
-        r1_found_active{Found in\nactive?}
+        r1_found_active{Found inactive?}
         r1_check_imm[Check immutable memtable]
-        r1_found_imm{Found in\nimmutable?}
+        r1_found_imm{Found in immutable?}
         r1_check_sst[Check SSTables]
         r1_end([Return result])
     end
 
     subgraph Read_Thread_2 ["Read Thread 2 (After Flush)"]
         r2_start([Read Request])
-        r2_load_flag[Load has_imm_\nwith memory_order_acquire]
-        r2_check_flag{has_imm_\n== true?}
+        r2_load_flag[Load has_imm_ with memory_order_acquire]
+        r2_check_flag{has_imm_ == true?}
         r2_check_active[Check active memtable]
-        r2_found_active{Found in\nactive?}
+        r2_found_active{Found in active?}
         r2_check_sst[Check SSTables]
         r2_end([Return result])
     end
@@ -47,7 +47,7 @@ flowchart TD
         bg_update_meta[Update metadata]
         bg_unref[Unref immutable memtable]
         bg_null[Set imm_ = nullptr]
-        bg_clear_flag[Set has_imm_=false\nwith memory_order_release]
+        bg_clear_flag[Set has_imm_=false with memory_order_release]
         bg_end([Flush completed])
     end
 
@@ -134,7 +134,7 @@ States
       1. background thread (BT) finishes flushing to SSTable.
       2. BT releases immutable memtable.
       3. Future readers will skip checking now non-existing immutable memtable.
-3. Final State: immutable data now in SSTable, only memtable is active.
+3. **Final State**: immutable data now in SSTable, only memtable is active.
 
 ```mermaid
 sequenceDiagram
