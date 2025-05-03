@@ -4,6 +4,7 @@
   - [Threading Model](#threading-model)
   - [Writer Thread](#writer-thread)
   - [Background Thread](#background-thread)
+    - [Background Memtable Flushing Details](#background-memtable-flushing-details)
   - [Reader Thread](#reader-thread)
     - [Atomic Flag has\_imm\_](#atomic-flag-has_imm_)
 
@@ -114,10 +115,7 @@ flowchart TD
 3. memtable switch
 
 ```cpp
-// leveldb/db/db_impl.cc
-Status DBImpl::MakeRoomForWrite(bool force) {
 
-}
 ```
 
 **Memtable Switch**
@@ -128,31 +126,42 @@ Status DBImpl::MakeRoomForWrite(bool force) {
 5. background compaction is scheduled
 
 ```cpp
-/// Code in MakeRoomForWrite()
+// leveldb/db/db_impl.cc
+Status DBImpl::MakeRoomForWrite(bool force) {
+    // step 1 create new WAL log file
+    assert(versions_->PrevLogNumber() == 0);
+    uint64_t new_log_number = versions_->NewFileNumber();
+    WritableFile* lfile = nullptr;
+    s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+    // ... [create new log file]
+    delete log_;
+    delete logfile_;
+    logfile_ = lfile;
+    logfilenumber_ = new_log_number;
+    log_ = new log::Writer(lfile);
 
-// step 1 create new WAL log file
-assert(versions_->PrevLogNumber() == 0);
-uint64_t new_log_number = versions_->NewFileNumber();
-WritableFile* lfile = nullptr;
-s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
-// ... [create new log file]
-delete log_;
-delete logfile_;
-logfile_ = lfile;
-logfilenumber_ = new_log_number;
-log_ = new log::Writer(lfile);
+    // step 2
+    imm_ = mem_;
+    // step 3
+    has_imm_.store(true, std::memory_order_release);
 
-// step 2
-imm_ = mem_;
-// step 3
-has_imm_.store(true, std::memory_order_release);
+    // step4: create new empty memtable
+    mem_ = new Memtable(internal_comparator_);
+    mem_->Ref();
 
-// step4: create new empty memtable
-mem_ = new Memtable(internal_comparator_);
-mem_->Ref();
+    // step5: signal for background thread to flush immutable memtable to SSTable
+    MaybeScheduleCompaction();
+    // ...
+}
 
-// step5: compaction
-MaybeScheduleCompaction();
+// signal the background thread to do work async
+void DBImpl::MaybeScheduleCompaction() {
+    mutex_.AssertHeld();
+    if (!background_compaction_scheduled_ && !shutting_down_.load() && 
+      bg_error_.ok() && (imm_ != nullptr || versions_->NeedsCompaction())) {
+        background_compaction_scheduled_ = true;
+        env_->Schedule(&DBImpl:BGWork, this); // schedule work for background thread
+    }
 ```
 
 FAQ
@@ -167,8 +176,83 @@ FAQ
     - system can easily find out which log file to be replayed for current memtable.
 
 ## Background Thread
+
+Writer thread signals the background thread to flush memtable to SSTable asynchronously.
 Background thread executes `CompactMemTable` method.
 
+Background thread actions
+1. wake up and acquire mutex
+2. do compaction work of flushing immutable memtable to SSTable
+   1. flush immutable memtable to disk
+   2. update version metadata
+   3. clear immutable memtable pointer
+   4. clear atomic flag
+3. signal completion to any waiting threads after finished
+
+Shared data structures with other reader, writer threads
+1. immutable memtable pointer `imm_`
+2. version metadata for the database
+
+### Background Memtable Flushing Details
+1. write immutable memtable to disk as a Level-0 SSTable
+2. update version metadata to include new SSTable
+
+```cpp
+Status DBImpl::CompactMemTable() {
+    mutex_.AssertHeld();
+    assert(imm_ != nullptr);
+
+    // save memtable as L0 SSTable
+
+    VersionEdit edit;
+    edit.SetLogNumber(logfile_number_);
+    edit.AddFile()
+    
+}
+```
+
+Questions
+- what is version metadata? 
+- why do we need version metadata?
+  - consistency: readers operate on specific versions while the database changes (writes, compaction).
+- why do we change it here background flushing?
+
+Edit version metadata in background thread compaction
+```mermaid
+sequenceDiagram
+    participant BG as Background Thread
+    participant VS as VersionSet
+    participant V1 as Version (Old)
+    participant V2 as Version (Current)
+    participant LE as Log & Edit
+    participant FS as File System
+
+    Note over BG,FS: During Memtable Flush
+    
+    BG->>FS: Write immutable memtable to SSTable
+    FS-->>BG: Return file number & size
+    
+    BG->>LE: Create VersionEdit
+    Note right of LE: AddFile(0, file_number, size, smallest, largest)
+    Note right of LE: SetLogNumber(log_number)
+    
+    BG->>VS: LogAndApply(edit)
+    
+    VS->>LE: Log edit to MANIFEST
+    Note right of LE: Serialized format for recovery
+    LE->>FS: Write to MANIFEST file
+    
+    VS->>V1: Take reference to prevent deletion
+    VS->>V1: Apply edit to create new version
+    V1-->>VS: Return new Version object
+    
+    VS->>V2: Install as current_
+    Note right of V2: All new readers will use this version
+    
+    VS->>V1: Unref (may delete if no readers)
+    
+    Note over BG,FS: Version Transition Complete
+```
 
 ## Reader Thread
 
