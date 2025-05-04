@@ -2,6 +2,7 @@ package main
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 // valueType indicates whether an entry represents a PUT or a DELETE (tombstone).
@@ -25,15 +26,16 @@ type internalKV struct {
 // range scans in a real LSM Tree. A production implementation would
 // typically use an ordered data structure like a Skip List, BTree, Red-Black Tree, etc.
 type MemTable struct {
-	mu            sync.RWMutex
-	kv            map[string]internalKV
-	estimatedSize int64 // Approximate size in bytes
+	mu sync.RWMutex
+	kv map[string]internalKV
+
+	// Approximate size in bytes
+	estimatedSize atomic.Int64
 }
 
 func NewMemTable() *MemTable {
 	return &MemTable{
-		kv:            make(map[string]internalKV),
-		estimatedSize: 0,
+		kv: make(map[string]internalKV),
 	}
 }
 
@@ -56,10 +58,11 @@ func (mt *MemTable) Put(key string, value []byte) error {
 	mt.kv[key] = newValue
 
 	// Update estimated size
-	newSize := int64(len(key) + len(value)) // Approximate new size
-	mt.estimatedSize += (newSize - oldSize)
+	newSize := int64(len(key) + len(value))
+	delta := newSize - oldSize
+	mt.estimatedSize.Add(delta)
 
-	return nil // In this simple version, Put always succeeds
+	return nil
 }
 
 // Delete marks a key as deleted (writes a tombstone).
@@ -86,7 +89,8 @@ func (mt *MemTable) Delete(key string) error {
 	// Update estimated size - Tombstones still take up space (key + marker)
 	// We approximate tombstone value size as 0 here.
 	newSize := int64(len(key))
-	mt.estimatedSize += (newSize - oldSize)
+	delta := newSize - oldSize
+	mt.estimatedSize.Add(delta)
 
 	return nil // In this simple version, Delete always succeeds
 }
@@ -115,12 +119,11 @@ func (mt *MemTable) Get(key string) ([]byte, bool, error) {
 }
 
 // Size returns the approximate size of the MemTable in bytes.
+// Atomic read is used instead of acquiring ReadLock for RWMutex to make it faster.
+// The returned value may be a bit stale if read concurrently with Put/Delete and that's ok
+// because it's an estimate anyway.
 func (mt *MemTable) Size() int64 {
-	mt.mu.RLock()
-	defer mt.mu.RUnlock()
-	// Return a copy of the size for safety, although int64 is often atomic on 64-bit
-	size := mt.estimatedSize
-	return size
+	return mt.estimatedSize.Load()
 }
 
 // Len returns the number of entries (including tombstones) in the MemTable.
