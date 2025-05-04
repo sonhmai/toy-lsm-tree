@@ -122,9 +122,7 @@ func TestMemTable_Size(t *testing.T) {
 		t.Errorf("Size after second Put should be > size1, got %d, want > %d", size2, size1)
 	}
 
-	// Delete first key - size should change (might increase or decrease depending
-	// on relative size of value vs key, but it should change from size2)
-	// In our simple calculation, it decreases because len(val1) > 0
+	// Delete first key - size should decrease because len(val1) > 0
 	mt.Delete(key1)
 	size3 := mt.Size()
 	if size3 == size2 {
@@ -150,34 +148,39 @@ func TestMemTable_Size(t *testing.T) {
 	}
 }
 
+// Basic check to ensure locks prevent data races. Run with go test -race flag
 func TestMemTable_Concurrency(t *testing.T) {
-	// Basic check to ensure locks prevent data races - run with -race flag
 	mt := NewMemTable()
 	key := "concurrent_key"
 	val := []byte("concurrent_value")
 
 	var wg sync.WaitGroup
-	numGoroutines := 50
+	numGoroutines := 100
 
 	// Concurrent Puts/Deletes
 	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		go func(i int) {
 			defer wg.Done()
-			if i%2 == 0 {
+			if i%4 == 0 {
 				mt.Put(key, val)
-			} else {
+			} else if i%4 == 1 {
 				mt.Delete(key)
+			} else if i%4 == 2 {
+				mt.Get(key)
+			} else {
+				mt.Size()
 			}
 		}(i)
 	}
 
-	// Concurrent Gets
+	// Concurrent Get/Size
 	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
-			mt.Get(key) // Just access it, don't care about result here
+			mt.Get(key) // read lock
+			mt.Size()   // atomic load
 		}()
 	}
 
