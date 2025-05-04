@@ -2,6 +2,30 @@ import bisect
 from typing import List, Tuple, Any, Optional, Iterator
 
 class MemTable:
+    """
+    We use a naive sorted list with binary search.
+    Production databases like LevelDB and RocksDB typically use more sophisticated 
+    data structures like Red-Black trees or Skip Lists.
+
+    Example of memtable sorting:
+        # Starting state:
+        entries = [
+            ("apple", 1),
+            ("cherry", 2),
+            ("zebra", 3)
+        ]
+
+        # Adding "banana" = 4:
+        # 1. Find insertion point (between "apple" and "cherry")
+        # 2. Insert new entry
+        # 3. Result:
+        entries = [
+            ("apple", 1),
+            ("banana", 4),
+            ("cherry", 2),
+            ("zebra", 3)
+        ]
+    """
     def __init__(self, max_size: int = 1000):
         self.entries: List[Tuple[str, Any]] = []
         self.max_size = max_size
