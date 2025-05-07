@@ -18,7 +18,7 @@ class SSTable:
     """
     def __init__(self, filename: str) -> None:
         self.filename = filename
-        self.index: Dict[str, int] = {}
+        self.index: Dict[str, int] = {} # mapping from key to byte offset in file
         if os.path.exists(filename):
             self._load_index()
             
@@ -61,7 +61,7 @@ class SSTable:
         """ get value for key from SSTable """
         if key not in self.index:
             return None
-
+        print(f"Index: {self.index}")
         try:
             with open(self.filename, "rb") as f:
                 f.seek(self.index[key])

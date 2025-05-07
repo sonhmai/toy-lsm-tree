@@ -55,52 +55,32 @@ def test_memtable_write_and_then_read(sstable_path):
     assert loaded_sstable.get("key3") == "value3"
     assert loaded_sstable.get("key4") is None # not existing
 
-# def test_get_from_sstable(sstable_path):
-#     """Test reading values from SSTable"""
-#     # Setup data
-#     memtable = MemTable(max_size=1000)
-#     memtable.add("apple", "red")
-#     memtable.add("banana", "yellow")
+def test_range_scan(sstable_path):
+    # Create test data
+    memtable = MemTable(max_size=1000)
+    memtable.add("apple", 1)
+    memtable.add("banana", 2)
+    memtable.add("cherry", 3)
+    memtable.add("date", 4)
+    memtable.add("elderberry", 5)
     
-#     # Write and create new instance to test loading
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    # Write to SSTable
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Create new SSTable instance to test loading
-#     loaded_sstable = SSTable(sstable_path)
+    # Test range scan
+    results = list(sstable.range_scan("banana", "date"))
+    assert len(results) == 3
+    assert results[0] == ("banana", 2)
+    assert results[1] == ("cherry", 3)
+    assert results[2] == ("date", 4)
     
-#     # Test getting values
-#     assert loaded_sstable.get("apple") == "red"
-#     assert loaded_sstable.get("banana") == "yellow"
-#     assert loaded_sstable.get("grape") is None
-
-# def test_range_scan(sstable_path):
-#     """Test range scanning functionality"""
-#     # Create test data
-#     memtable = MemTable(max_size=1000)
-#     memtable.add("apple", 1)
-#     memtable.add("banana", 2)
-#     memtable.add("cherry", 3)
-#     memtable.add("date", 4)
-#     memtable.add("elderberry", 5)
+    # Test edge cases
+    results = list(sstable.range_scan("a", "z"))
+    assert len(results) == 5
     
-#     # Write to SSTable
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
-    
-#     # Test range scan
-#     results = list(sstable.range_scan("banana", "date"))
-#     assert len(results) == 3
-#     assert results[0] == ("banana", 2)
-#     assert results[1] == ("cherry", 3)
-#     assert results[2] == ("date", 4)
-    
-#     # Test edge cases
-#     results = list(sstable.range_scan("a", "z"))
-#     assert len(results) == 5
-    
-#     results = list(sstable.range_scan("z", "zz"))
-#     assert len(results) == 0
+    results = list(sstable.range_scan("z", "zz"))
+    assert len(results) == 0
 
 # def test_empty_range_scan(sstable_path):
 #     """Test range scan on empty SSTable"""
