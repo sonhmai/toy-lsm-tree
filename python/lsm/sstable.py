@@ -1,6 +1,7 @@
 import os
 import pickle
 from typing import Dict, Optional, Any, Iterator, Tuple
+import logging
 
 from lsm.memtable import MemTable
 
@@ -20,9 +21,11 @@ class SSTable:
         self.index: Dict[str, int] = {}
         if os.path.exists(filename):
             self._load_index()
+            
 
     def _load_index(self):
         """ load index from existing SSTable file """
+        logging.info(f"Loading index from {self.filename}...")
         try:
             with open(self.filename, "rb") as f:
                 f.seek(0)
@@ -33,7 +36,7 @@ class SSTable:
             raise ValueError(f"Failed to load SSTable index: {e}")
         
     def write_memtable(self, memtable: MemTable):
-        temp_file = f"{self.filename}.sstable"
+        temp_file = f"{self.filename}.temp"
         with open(temp_file, "wb") as f:
             # write index size for recovery
             index_pos = f.tell()
@@ -52,7 +55,7 @@ class SSTable:
             f.seek(index_pos)
             f.write(index_offset.to_bytes(8, "big"))
             f.flush()
-            # os.sync(f.fileno()) ??
+            # TODO do we need os.sync(f.fileno()) 
     
     def get(self, key: str) -> Optional[Any]:
         """ get value for key from SSTable """

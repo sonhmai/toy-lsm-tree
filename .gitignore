@@ -1,3 +1,5 @@
 book
 .idea/
 **/target/
+*.sstable
+local/
