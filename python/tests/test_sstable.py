@@ -59,8 +59,9 @@ def test_range_scan(sstable_path):
     # Create test data
     memtable = MemTable(max_size=1000)
     memtable.add("apple", 1)
-    memtable.add("banana", 2)
     memtable.add("cherry", 3)
+    # banana added after cherry. should be sorted (come before cherry) in sstable
+    memtable.add("banana", 2) 
     memtable.add("date", 4)
     memtable.add("elderberry", 5)
     
@@ -68,19 +69,21 @@ def test_range_scan(sstable_path):
     sstable = SSTable(sstable_path)
     sstable.write_memtable(memtable)
     
-    # Test range scan
+    # Range scan should cover all range, keys should be sorted
     results = list(sstable.range_scan("banana", "date"))
     assert len(results) == 3
     assert results[0] == ("banana", 2)
     assert results[1] == ("cherry", 3)
     assert results[2] == ("date", 4)
     
-    # Test edge cases
-    # results = list(sstable.range_scan("a", "z"))
-    # assert len(results) == 5
+    # Test edge case: query range is bigger than keys range
+    results = list(sstable.range_scan("a", "z"))
+    assert len(results) == 5
+    assert results[1] == ("banana", 2) # banana and cherry should be sorted
     
-    # results = list(sstable.range_scan("z", "zz"))
-    # assert len(results) == 0
+    # range scan not overlapping with keys should return nothing
+    results = list(sstable.range_scan("z", "zz"))
+    assert len(results) == 0
 
 # def test_empty_range_scan(sstable_path):
 #     """Test range scan on empty SSTable"""
