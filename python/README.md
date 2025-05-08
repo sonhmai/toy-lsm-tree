@@ -5,6 +5,9 @@
 curl -Ls https://astral.sh/uv/install.sh | bash
 
 uv run pytest
+# run a specific test
+uv run pytest -sv -k test_range_scan
+
 uv run main.py
 ```
 

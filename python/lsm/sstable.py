@@ -46,7 +46,9 @@ class SSTable:
                 offset = f.tell()
                 self.index[key] = offset
                 entry_bytes = pickle.dumps((key, value))
-                f.write(len(entry_bytes).to_bytes(4, "big"))
+                size_entry = len(entry_bytes).to_bytes(4, "big")
+                f.write(size_entry)
+                print(f"offset={offset}, key={key}, value={value}, len entry={len(entry_bytes)}, len in bytes={size_entry}, entry_bytes={entry_bytes}")
                 f.write(entry_bytes)
             # write index at end
             index_offset = f.tell()
@@ -56,6 +58,8 @@ class SSTable:
             f.write(index_offset.to_bytes(8, "big"))
             f.flush()
             # TODO do we need os.sync(f.fileno()) 
+        # Atomically rename temp file to actual file
+        os.replace(temp_file, self.filename)
     
     def get(self, key: str) -> Optional[Any]:
         """ get value for key from SSTable """
@@ -64,8 +68,13 @@ class SSTable:
         print(f"Index: {self.index}")
         try:
             with open(self.filename, "rb") as f:
-                f.seek(self.index[key])
-                size = int.from_bytes(f.read(4), "big")
+                entry_size_offset = self.index[key]
+                print(f"[get] key={key}, entry_size offset={entry_size_offset}")
+                f.seek(entry_size_offset)
+                size_in_bytes = f.read(4)
+                print(f"[get] size in bytes: {size_in_bytes}")
+                size = int.from_bytes(size_in_bytes, "big")
+                print(f"[get] entry size: {size}")
                 entry = pickle.loads(f.read(size))
                 return entry[1]
         except (IOError, pickle.PickleError) as e:
