@@ -1,10 +1,10 @@
-import datetime
+from datetime import datetime
 import json
 from typing import Any
 
 class WalEntry:
     def __init__(self, operation: str, key: str, value: Any) -> None:
-        self.timestamp = datetime.utcnow().isoformat()
+        self.timestamp = datetime.now().isoformat()
         self.operation = operation # set or delete
         self.key = key
         self.value = value

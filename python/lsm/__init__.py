@@ -92,9 +92,8 @@ class LSMTree:
             self._compact()
 
     def _load_sstables(self):
-        """Load existing SSTables from disk"""
+        """Load existing SSTables from disk, having their indices in memory to check whether a key exists"""
         self.sstables.clear()
-
         for file in sorted(self.base_path.glob("sstable_*.db")):
             self.sstables.append(SSTable(str(file)))
 
@@ -103,14 +102,9 @@ class LSMTree:
         with self.lock:
             if not isinstance(key, str):
                 raise ValueError("Key must be a string")
-
-            # 1. Safety first: Write to WAL
+            # write to wal first, then memtable, flush to sstable if memtable is full
             self.wal.set(key, value)
-
-            # 2. Write to memory table (fast!)
             self.memtable.add(key, value)
-
-            # 3. If memory table is full, save to disk
             if self.memtable.is_full():
                 self._flush_memtable()
 
