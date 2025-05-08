@@ -56,11 +56,11 @@ def test_memtable_write_and_then_read(sstable_path):
     assert loaded_sstable.get("key4") is None # not existing
 
 def test_range_scan(sstable_path):
-    # Create test data
     memtable = MemTable(max_size=1000)
     memtable.add("apple", 1)
-    memtable.add("banana", 2)
     memtable.add("cherry", 3)
+    # banana added after cherry. should be sorted (come before cherry) in sstable
+    memtable.add("banana", 2) 
     memtable.add("date", 4)
     memtable.add("elderberry", 5)
     
@@ -68,38 +68,39 @@ def test_range_scan(sstable_path):
     sstable = SSTable(sstable_path)
     sstable.write_memtable(memtable)
     
-    # Test range scan
+    # Range scan should cover all range, keys should be sorted
     results = list(sstable.range_scan("banana", "date"))
     assert len(results) == 3
     assert results[0] == ("banana", 2)
     assert results[1] == ("cherry", 3)
     assert results[2] == ("date", 4)
     
-    # Test edge cases
+    # Test edge case: query range is bigger than keys range
     results = list(sstable.range_scan("a", "z"))
     assert len(results) == 5
+    assert results[1] == ("banana", 2) # banana and cherry should be sorted
     
+    # range scan not overlapping with keys should return nothing
     results = list(sstable.range_scan("z", "zz"))
     assert len(results) == 0
 
-# def test_empty_range_scan(sstable_path):
-#     """Test range scan on empty SSTable"""
-#     sstable = SSTable(sstable_path)
-#     results = list(sstable.range_scan("a", "z"))
-#     assert len(results) == 0
+def test_empty_table_range_scan(sstable_path):
+    sstable = SSTable(sstable_path)
+    results = list(sstable.range_scan("a", "z"))
+    assert len(results) == 0
 
-# def test_file_format_compatibility(sstable_path):
-#     """Test file format by manually checking written file"""
-#     memtable = MemTable(max_size=1000)
-#     memtable.add("key", "value")
+def test_file_format_compatibility(sstable_path):
+    """Test file format by manually checking written file"""
+    memtable = MemTable(max_size=1000)
+    memtable.add("key", "value")
     
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Check if temp file exists (bug test)
-#     temp_file = f"{sstable_path}.sstable"
-#     assert os.path.exists(temp_file)
-#     assert not os.path.exists(sstable_path)
+    # temp file should not exist after write because it was renamed into sstable
+    temp_file = f"{sstable_path}.temp"
+    assert not os.path.exists(temp_file)
+    assert os.path.exists(sstable_path)
 
 # def test_error_handling_invalid_file(sstable_path):
 #     """Test error handling for corrupted files"""
@@ -111,87 +112,87 @@ def test_range_scan(sstable_path):
 #     with pytest.raises(ValueError):
 #         SSTable(sstable_path)
 
-# def test_complex_data_types(sstable_path):
-#     """Test with complex data types"""
-#     memtable = MemTable(max_size=1000)
-#     memtable.add("list_key", [1, 2, 3, 4])
-#     memtable.add("dict_key", {"nested": {"value": 42}})
-#     memtable.add("tuple_key", (1, 2, 3))
+def test_complex_data_types(sstable_path):
+    memtable = MemTable(max_size=1000)
+    memtable.add("list_key", [1, 2, 3, 4])
+    memtable.add("dict_key", {"nested": {"value": 42}})
+    memtable.add("tuple_key", (1, 2, 3))
     
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Verify complex data can be stored and retrieved
-#     assert sstable.get("list_key") == [1, 2, 3, 4]
-#     assert sstable.get("dict_key") == {"nested": {"value": 42}}
-#     assert sstable.get("tuple_key") == (1, 2, 3)
+    # Verify complex data can be stored and retrieved
+    assert sstable.get("list_key") == [1, 2, 3, 4]
+    assert sstable.get("dict_key") == {"nested": {"value": 42}}
+    assert sstable.get("tuple_key") == (1, 2, 3)
 
-# def test_large_dataset(sstable_path):
-#     """Test with larger dataset to check scaling"""
-#     memtable = MemTable(max_size=10000)
+def test_large_dataset(sstable_path):
+    memtable = MemTable(max_size=10000)
     
-#     # Add 100 entries
-#     for i in range(100):
-#         key = f"key_{i:03d}"
-#         value = f"value_{i}"
-#         memtable.add(key, value)
+    # Add 100 entries
+    for i in range(10000):
+        key = f"key_{i:03d}"
+        value = f"value_{i}"
+        memtable.add(key, value)
     
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Verify index size
-#     assert len(sstable.index) == 100
+    # Verify index size
+    assert len(sstable.index) == 10000
     
-#     # Verify random access
-#     assert sstable.get("key_050") == "value_50"
+    # Verify random access
+    assert sstable.get("key_050") == "value_50"
     
-#     # Verify range scan
-#     results = list(sstable.range_scan("key_010", "key_020"))
-#     assert len(results) == 11  # includes both boundaries
+    # Verify range scan
+    results = list(sstable.range_scan("key_010", "key_020"))
+    assert len(results) == 11  # includes both boundaries
 
-# def test_memtable_ordering(sstable_path):
-#     """Test that MemTable maintains key ordering"""
-#     memtable = MemTable(max_size=100)
+def test_memtable_should_maintain_keys_ordering(sstable_path):
+    memtable = MemTable(max_size=100)
     
-#     # Add keys in random order
-#     keys = ["charlie", "alpha", "beta", "delta"]
-#     for i, key in enumerate(keys):
-#         memtable.add(key, i)
+    # Add keys in random order
+    keys = ["charlie", "beta", "alpha", "delta"]
+    for i, key in enumerate(keys):
+        memtable.add(key, i)
     
-#     # Verify keys are sorted in memtable
-#     entries = list(memtable.entries)
-#     assert entries[0][0] == "alpha"
-#     assert entries[1][0] == "beta"
-#     assert entries[2][0] == "charlie"
-#     assert entries[3][0] == "delta"
+    # Verify keys are sorted in memtable
+    entries = list(memtable.entries)
+    assert entries[0][0] == "alpha"
+    assert entries[1][0] == "beta"
+    assert entries[2][0] == "charlie"
+    assert entries[3][0] == "delta"
     
-#     # Write to SSTable and verify ordering
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Verify keys are still sorted in SSTable
-#     sorted_keys = sorted(sstable.index.keys())
-#     assert sorted_keys == ["alpha", "beta", "charlie", "delta"]
+    # Verify SSTable preserves ordering by reading entries in sequence
+    # We'll use range_scan with a wide range to get all entries in order
+    results = list(sstable.range_scan("a", "z"))
+    assert len(results) == 4
+    assert results[0][0] == "alpha"
+    assert results[1][0] == "beta"
+    assert results[2][0] == "charlie"
+    assert results[3][0] == "delta"
 
-# def test_memtable_overwrite(sstable_path):
-#     """Test overwriting existing keys in MemTable"""
-#     memtable = MemTable(max_size=100)
+def test_memtable_overwrite_existing_keys_should_be_ok(sstable_path):
+    memtable = MemTable(max_size=100)
     
-#     # Add initial value
-#     memtable.add("key1", "value1")
-#     assert memtable.get("key1") == "value1"
+    # Add initial value
+    memtable.add("key1", "value1")
+    assert memtable.get("key1") == "value1"
     
-#     # Overwrite with new value
-#     memtable.add("key1", "value2")
-#     assert memtable.get("key1") == "value2"
+    # Overwrite with new value
+    memtable.add("key1", "value2")
+    assert memtable.get("key1") == "value2"
     
-#     # Verify only one entry exists
-#     assert len(memtable.entries) == 1
+    # Verify only one entry exists
+    assert len(memtable.entries) == 1
     
-#     # Write to SSTable and verify
-#     sstable = SSTable(sstable_path)
-#     sstable.write_memtable(memtable)
+    # Write to SSTable and verify
+    sstable = SSTable(sstable_path)
+    sstable.write_memtable(memtable)
     
-#     # Verify only latest value is in SSTable
-#     assert sstable.get("key1") == "value2"
-#     assert len(sstable.index) == 1
+    # Verify only latest value is in SSTable
+    assert sstable.get("key1") == "value2"
+    assert len(sstable.index) == 1

@@ -5,8 +5,13 @@
 curl -Ls https://astral.sh/uv/install.sh | bash
 
 uv run pytest
+# run a specific test
+uv run pytest -sv -k test_range_scan
+
 uv run main.py
 ```
+
+## Design
 
 Components
 - Write-Ahead Logging (WAL) for durability and crash recovery
@@ -16,7 +21,7 @@ Components
 
 ![lsm](./lsm.png)
 
-https://hackernoon.com/how-to-build-a-database-from-scratch-understanding-lsm-trees-and-storage-engines-part-1
+### Atomicity
 
 ## Limitations
 Storage and Performance:
@@ -35,3 +40,4 @@ Concurrency:
 - LevelDB Documentation — Google’s key-value store, excellent for understanding practical optimizations
 - RocksDB Compaction — Deep dive into advanced compaction strategies
 - Database Internals — A comprehensive book on database system design
+- https://hackernoon.com/how-to-build-a-database-from-scratch-understanding-lsm-trees-and-storage-engines-part-1
